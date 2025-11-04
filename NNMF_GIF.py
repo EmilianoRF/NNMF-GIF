@@ -14,6 +14,7 @@ class NNMF_GIF:
                  norma='fro',
                  pre_iteraciones=10,
                  iteraciones=50,
+                 margen_error = 1,
                  p_filtro=12):
 
         # ============ Parámetros por defecto
@@ -22,9 +23,10 @@ class NNMF_GIF:
         self.ventana = ventana
         self.p = 0.55
         self.norma = norma
-        self.max_iter = iteraciones
+        self.iter = iteraciones
         self.pre_iter = pre_iteraciones
-        self.total_iter = self.max_iter +self.pre_iter
+        self.margen_error = margen_error/100
+        self.total_iter = -1
         self.orden_filtro_tracto = p_filtro
         # ====================================
 
@@ -64,6 +66,12 @@ class NNMF_GIF:
         self.dflujo2 = -1
         self.error_predic1 = -1
         self.error_predic2 = -1
+        self.e1H1 =-1
+        self.e2H2 =-1
+        self.sum_e1H1 = -1
+        self.sum_e2H2 = -1
+        self.total_iter = -1
+        self.dif_error = -1
         # ====================================
         self.Run()
 
@@ -78,69 +86,100 @@ class NNMF_GIF:
         error= []
         error_W1 = []
         error_W2 = []
+        dif_error = []
         error_ = 0
 
          #============================= Defino W y H   
         indice_maximo = np.where(self.energia_speech == max(self.energia_speech))[0][0]
         indice_minimo = np.where(self.energia_speech == min(self.energia_speech))[0][0]
         W_i = np.array([np.array(self.espectrograma[:,indice_maximo]),np.array(self.espectrograma[:,indice_minimo])]).transpose()
-        H_i = np.random.rand(R, M)
+        fila1 = np.random.rand(M)
+        fila2 = 1-fila1
+        H_i = np.array([fila1,fila2])
 
         # Calculo la aproximación inicial y después calculo el error
-        X_aprox = np.matmul(W_i,H_i)
-
+        X_aprox = W_i @ H_i
         if self.norma == 'fro':
-            error_ = np.linalg.norm(X-X_aprox, ord=self.norma)
-        else:
+            error_ = np.linalg.norm(X-X_aprox, ord='fro')
+
+            error.append(error_)
+            #============================= Pre-iteraciones
+            while i <= self.pre_iter:
+                H_i = H_i * (W_i.T @ X) / ((W_i.T @ W_i)@ H_i) 
+
+                suma_col = H_i.sum(axis=0)
+                H_i = H_i / suma_col
+
+                X_aprox =  W_i @ H_i
+                error_ = np.linalg.norm(X-X_aprox, ord=self.norma)
+                error.append(error_)
+                i+=1
+
+            #============================= Resto de las iteraciones
+            i = 1
+            while not debajo_error and i < self.iter:
+                W_1_0 = W_i[:,0]
+                W_2_0 = W_i[:,1]
+
+                W_i = W_i * (X @ H_i.T)/(W_i @ (H_i @ H_i.T))
+
+                W_1_1 = W_i[:,0]
+                W_2_1 = W_i[:,1]
+                
+                error_W1.append(np.linalg.norm(W_1_0-W_1_1))
+                error_W2.append(np.linalg.norm(W_2_0-W_2_1))        
+                H_i = H_i * (W_i.T @ X) / ((W_i.T @ W_i)@ H_i) 
+                suma_col = H_i.sum(axis=0)
+                H_i = H_i / suma_col
+                
+                X_aprox =  W_i @ H_i
+                error_ = np.linalg.norm(X-X_aprox, ord=self.norma)
+                error.append(error_)
+                i += 1
+                dif_error.append(abs((error[len(error)-1]-error[len(error)-2])/(error[len(error)-1]))*100)
+        if self.norma == 'itakura-saito':
+
             error_ = np.sum(X/X_aprox) - np.prod(X.shape) - np.sum(np.log(X/X_aprox))
-
-        error.append(error_)
-        #============================= Pre-iteraciones
-        while i <= self.pre_iter:
-            H_i = H_i * (np.matmul(W_i.transpose(),X)) /( np.matmul((np.matmul(W_i.transpose(),W_i)),H_i) + epsilon)
-            for i_ in range(0,H_i.shape[0]):
-                maximo    = np.max(H_i[i_,:])
-                H_i[i_,:] = H_i[i_,:]/maximo
-            X_aprox =  np.matmul(W_i,H_i)
-            if self.norma == 'fro':
-                error_ = np.linalg.norm(X-X_aprox, ord=self.norma)
-            if self.norma == 'itakura-saito':
-                # Siguiendo la implementación de Scikit-Learn :https://github.com/scikit-learn/scikit-learn/blob/main/sklearn/decomposition/_nmf.py
-                error_ = np.sum(X/X_aprox) - np.prod(X.shape) - np.sum(np.log(X/X_aprox))
             error.append(error_)
-            i+=1
+            #============================= Pre-iteraciones
+            while i <= self.pre_iter:
 
-        #============================= Resto de las iteraciones
-        i = 1
-        while not debajo_error and i <= self.max_iter:
-            W_1_0 = W_i[:,0]
-            W_2_0 = W_i[:,1]
+                H_i = H_i * (W_i.T @ (X*X_aprox**(-2))) / (W_i.T @ X_aprox**(-1))
+                H_sum = H_i.sum(axis=0)
+                H_i = H_i / H_sum
 
-            W_i = W_i * (np.matmul(X,H_i.transpose()))/(np.matmul(W_i,np.matmul(H_i,H_i.transpose())) + epsilon)
-
-            W_1_1 = W_i[:,0]
-            W_2_1 = W_i[:,1]
-            
-
-            for i_ in range(0,W_i.shape[1]):
-                maximo    = np.max(W_i[:,i_])
-                W_i[:,i_] = W_i[:,i_]/maximo
-            
-            error_W1.append(np.linalg.norm(W_1_0-W_1_1))
-            error_W2.append(np.linalg.norm(W_2_0-W_2_1))        
-            H_i     = H_i * (np.matmul(W_i.transpose(),X)) /( np.matmul((np.matmul(W_i.transpose(),W_i)),H_i) + epsilon)
-            X_aprox =  np.matmul(W_i,H_i)
-
-            if self.norma == 'fro':
-                error_ = np.linalg.norm(X-X_aprox, ord=self.norma)
-            if self.norma == 'itakura-saito':
-                # Siguiendo la implementación de Scikit-Learn :https://github.com/scikit-learn/scikit-learn/blob/main/sklearn/decomposition/_nmf.py
+                X_aprox =  W_i @ H_i
                 error_ = np.sum(X/X_aprox) - np.prod(X.shape) - np.sum(np.log(X/X_aprox))
+                error.append(error_)
+                i+=1
 
-            error.append(error_)
-            if error_ <= debajo_error:
-                debajo_error = True
-            i += 1
+            #============================= Resto de las iteraciones
+            i = 1
+            while not debajo_error and i < self.iter:
+                W_1_0 = W_i[:,0]
+                W_2_0 = W_i[:,1]
+
+                W_i = W_i * ( (X_aprox**(-2)*X) @ H_i.T) / (X_aprox**(-1) @ H_i.T)
+
+                W_1_1 = W_i[:,0]
+                W_2_1 = W_i[:,1]
+
+                error_W1.append(np.linalg.norm(W_1_0-W_1_1))
+                error_W2.append(np.linalg.norm(W_2_0-W_2_1))      
+
+                H_i = H_i * (W_i.T @ (X*X_aprox**(-2))) / (W_i.T @ X_aprox**(-1))
+                H_sum = H_i.sum(axis=0)
+                H_i = H_i / H_sum
+
+                X_aprox =  W_i @ H_i
+                error_ = np.sum(X/X_aprox) - np.prod(X.shape) - np.sum(np.log(X/X_aprox))
+                error.append(error_)
+                i += 1
+                dif_error.append(abs((error[len(error)-1]-error[len(error)-2])/(error[len(error)-1]))*100)
+
+        self.max_iter = i
+        self.total_iter = self.max_iter+self.pre_iter
+        self.dif_error = np.array(dif_error)
         self.espectrograma_aprox = X_aprox
         self.W_i =W_i
         self.H_i = H_i
@@ -203,8 +242,11 @@ class NNMF_GIF:
         self.energia_speech = energia
     
     def GIF(self):
-        H1 = np.array(self.H_i[0,:])/max(self.H_i[0,:])
-        H2 = np.array(self.H_i[1,:])/max(self.H_i[1,:])
+        #H_i = self.H_i / self.H_i.sum(axis=0)
+        #H1 = H_i[0, :]
+        #H2 = H_i[1, :]
+        H1 = np.array(self.H_i[0,:])
+        H2 = np.array(self.H_i[1,:])
         W1 = self.W_i[:,0]
         W2 = self.W_i[:,1]
         W1 = W1**(2/self.p)
@@ -266,10 +308,12 @@ class NNMF_GIF:
         maximo   = max(abs(np.array(ep2)))
         if maximo > 1:
             ep2 = np.array([val/maximo for val in ep2])  
+        if np.sum(H1[:len(H1)-self.orden_filtro_tracto-1]*np.abs(ep1[self.long_ventana_espect-1:len(ep1)-self.orden_filtro_tracto-1]))/np.sum(H1[:len(H1)-self.orden_filtro_tracto-1]) < np.sum(H2[:len(H2)-self.orden_filtro_tracto-1]*np.abs(ep2[self.long_ventana_espect-1:len(ep2)-self.orden_filtro_tracto-1]))/np.sum(H2[:len(H2)-self.orden_filtro_tracto-1]):
+            self.e1H1 = H1[:len(H1)-self.orden_filtro_tracto-1]*np.abs(ep1[self.long_ventana_espect-1:len(ep1)-self.orden_filtro_tracto-1])
+            self.e2H2 = H2[:len(H2)-self.orden_filtro_tracto-1]*np.abs(ep2[self.long_ventana_espect-1:len(ep2)-self.orden_filtro_tracto-1])
+            self.sum_e1H1 = np.sum(H1[:len(H1)-self.orden_filtro_tracto-1]*np.abs(ep1[self.long_ventana_espect-1:len(ep1)-self.orden_filtro_tracto-1]))/np.sum(H1[:len(H1)-self.orden_filtro_tracto-1])
+            self.sum_e2H2 = np.sum(H2[:len(H2)-self.orden_filtro_tracto-1]*np.abs(ep2[self.long_ventana_espect-1:len(ep2)-self.orden_filtro_tracto-1]))/np.sum(H2[:len(H2)-self.orden_filtro_tracto-1])
 
-        cs1 = np.sum(H1*np.abs(ep1[self.long_ventana_espect-1:]))/np.sum(H1**2)
-        cs2 = np.sum(H2*np.abs(ep2[self.long_ventana_espect-1:]))/np.sum(H2**2)
-        if cs1 >= cs2:
             self.error_predic1 = ep1
             self.error_predic2 = ep2
             self.W1 = W1
@@ -289,8 +333,13 @@ class NNMF_GIF:
 
             maximo   = max(abs(self.dflujo2))
             if maximo > 1:
-                self.dflujo2 = np.array([val/maximo for val in self.dflujo2])
+                    self.dflujo2 = np.array([val/maximo for val in self.dflujo2])
         else:
+            self.e1H1 = H2[:len(H2)-self.orden_filtro_tracto-1]*np.abs(ep2[self.long_ventana_espect-1:len(ep2)-self.orden_filtro_tracto-1])
+            self.e2H2 = H1[:len(H1)-self.orden_filtro_tracto-1]*np.abs(ep1[self.long_ventana_espect-1:len(ep1)-self.orden_filtro_tracto-1])
+            self.sum_e1H1 = np.sum(H2[:len(H2)-self.orden_filtro_tracto-1]*np.abs(ep2[self.long_ventana_espect-1:len(ep2)-self.orden_filtro_tracto-1]))/np.sum(H2[:len(H1)-self.orden_filtro_tracto-1])
+            self.sum_e2H2 = np.sum(H1[:len(H1)-self.orden_filtro_tracto-1]*np.abs(ep1[self.long_ventana_espect-1:len(ep1)-self.orden_filtro_tracto-1]))/np.sum(H1[:len(H2)-self.orden_filtro_tracto-1])
+
             self.error_predic1 = ep2
             self.error_predic2 = ep1
             self.W1 = W2
@@ -310,7 +359,15 @@ class NNMF_GIF:
 
             maximo   = max(abs(self.dflujo2))
             if maximo > 1:
-                self.dflujo2 = np.array([val/maximo for val in self.dflujo2])      
+                    self.dflujo2 = np.array([val/maximo for val in self.dflujo2])
+
+            aux = self.polos_W1
+            self.polos_W1 = self.polos_W2
+            self.polos_W2 = aux
+            aux = self.ceros_W1
+            self.ceros_W1 = self.ceros_W2
+            self.ceros_W2 = aux        
+  
 
     def Run(self):
         self.Espectrograma()
