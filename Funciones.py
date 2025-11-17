@@ -13,7 +13,6 @@ import PyPDF2
 import os
 
 
-
 def Sincronizar(señal_estimada,señal):
 
     corr = sig.correlate(señal_estimada,señal)
@@ -21,6 +20,29 @@ def Sincronizar(señal_estimada,señal):
     lag = lags[np.argmax(corr)]
 
     return np.roll(señal_estimada, -lag)
+
+from scipy.signal import butter, filtfilt, hilbert, correlate, correlation_lags
+
+
+def Sincronizar2(tiempos,señal_referencia,señal_estimada):
+
+    dseñal1 = np.gradient(señal_referencia,tiempos)
+    dseñal2 = np.gradient(señal_estimada,tiempos)
+    corr = sig.correlate(dseñal1,dseñal2)
+    lags = sig.correlation_lags(len(dseñal1), len(dseñal2), mode='full')
+    lag = lags[np.argmax(abs(corr))]
+    señal2_=[]
+    señal1_=[]
+    tiempos_=[]
+    if lag >0:
+        señal2_=señal_estimada[0:len(señal_estimada)-lag]
+        señal1_=señal_referencia[lag:]
+        tiempos_=tiempos[lag:]
+    if lag <0:
+        señal2_=señal_estimada[abs(lag):]
+        señal1_=señal_referencia[0:len(señal_referencia)-abs(lag)]
+        tiempos_=tiempos[:len(tiempos)-abs(lag)]
+    return tiempos_,señal1_,señal2_
 
 def Escalar(señal_estimada,señal):
     factor = np.dot(señal,señal_estimada)/np.sum(señal_estimada**2)
