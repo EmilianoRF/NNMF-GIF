@@ -8,9 +8,96 @@ from scipy import signal as sig
 from scipy.linalg import solve_toeplitz
 import matplotlib.pyplot as plt
 
+from scipy.signal import butter, filtfilt, hilbert, correlate, correlation_lags
+
+
 import glob
 import PyPDF2
 import os
+
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+
+def plot_freq_pc(señal,fs,label,a1,polos1,ceros1,a2,polos2,ceros2):
+    fig = plt.figure(figsize=(10,3))
+    gs = gridspec.GridSpec(1, 2, width_ratios=[2,1])  # 3:1 → 75% vs 25%
+
+    ax0 = fig.add_subplot(gs[0])  # respuesta en frecuencia
+    ax1 = fig.add_subplot(gs[1])  # polos y ceros
+
+    theta = np.linspace(0, 2*np.pi, 200)
+
+    fftseñal, fseñal = FFT(señal, fs)
+
+    fw1,hw1 = sig.freqz([1],a1,fs=fs)
+    fw2,hw2 = sig.freqz([1],a2,fs=fs)
+
+    color1 = 'red'
+    color2 = 'blue'
+    color3 = 'k'
+
+    # --- Respuesta en frecuencia ---
+    ax0.plot(fw1, 10*np.log10(np.abs(hw1)), label=r'$W_1$', color=color1)
+    ax0.plot(fw2, 10*np.log10(np.abs(hw2)), label=r'$W_2$', color=color2)
+    ax0.plot(fseñal, 10*np.log10(np.abs(fftseñal)), label=label, color=color3, zorder=-1)
+    ax0.set_xlim(0,fs/2)
+    ax0.set_xticks(np.arange(0, fs/2, 100), minor=True)
+    ax0.grid(True, linestyle='dashed', color='gray', alpha=0.3, which='both')
+    ax0.set_xlabel('Frecuencia [Hz]')
+    ax0.set_ylabel('[dB]')
+    ax0.legend(loc='upper right')
+
+    # --- Diagrama de polos y ceros ---
+    ax1.plot(np.cos(theta), np.sin(theta), 'k--', alpha=1)
+    ax1.yaxis.tick_right()
+    ax1.yaxis.set_label_position("right")
+
+    ax1.scatter(np.real(ceros1), np.imag(ceros1),s=80, facecolors='none', edgecolors=color1, label='Ceros')
+    ax1.scatter(np.real(polos1), np.imag(polos1),s=80, marker='x', color=color1, label='Polos')
+
+    ax1.scatter(np.real(ceros2), np.imag(ceros2),s=80, facecolors='none', edgecolors=color2, label='Ceros')
+    ax1.scatter(np.real(polos2), np.imag(polos2),s=80, marker='x', color=color2, label='Polos')
+
+    ax1.set_xticks(np.arange(-1.25,1.25,0.25), minor=True)
+    ax1.set_yticks(np.arange(-1.25,1.25,0.25), minor=True)
+    ax1.set_ylabel(r"$Im\{z\}$")
+    ax1.set_xlabel(r"$Re\{z\}$")
+    ax1.grid(True, linestyle='dashed', color='gray', alpha=0.3)
+
+def calcular_espectrograma(señal,
+                           fs=8000,
+                           ventana='boxcar',
+                           duracion_ventana=5.5,
+                           desplazamiento=1,
+                           pre_enfasis=True,
+                           p=0.55):
+    # Pre-énfasis o centrado
+    if pre_enfasis:
+        b = [1, -1]
+        a = [1]
+        señal = sig.lfilter(b, a, señal)
+    else:
+        señal = señal - np.mean(señal)
+
+    longitud_ventana = int(np.round(fs * duracion_ventana / 1000))
+    if ventana == 'boxcar':
+        ventana = sig.windows.boxcar(longitud_ventana)
+
+    cantidad_ventanas = int(1 + np.floor((len(señal) - longitud_ventana) / desplazamiento))
+    matriz_STFT = np.zeros([longitud_ventana, cantidad_ventanas], dtype=complex)
+
+    for i in range(cantidad_ventanas):
+        inicio = i * desplazamiento
+        desp_rel = np.arange(longitud_ventana)
+        posicion_ventana = inicio + desp_rel
+        señal_ventaneada = np.multiply(ventana, señal[posicion_ventana])
+        matriz_STFT[:, i] = np.fft.fft(señal_ventaneada)
+
+    matriz_STFT = matriz_STFT[0:matriz_STFT.shape[0] // 2, :]
+    espectrograma = np.abs(matriz_STFT) ** p
+
+    return matriz_STFT, espectrograma
+
 
 
 def Sincronizar(señal_estimada,señal):
@@ -21,13 +108,13 @@ def Sincronizar(señal_estimada,señal):
 
     return np.roll(señal_estimada, -lag)
 
-from scipy.signal import butter, filtfilt, hilbert, correlate, correlation_lags
+
 
 
 def Sincronizar2(tiempos,señal_referencia,señal_estimada):
 
-    dseñal1 = np.gradient(señal_referencia,tiempos)
-    dseñal2 = np.gradient(señal_estimada,tiempos)
+    dseñal1 = señal_referencia - np.mean(señal_referencia)
+    dseñal2 = señal_estimada - np.mean(señal_estimada)
     corr = sig.correlate(dseñal1,dseñal2)
     lags = sig.correlation_lags(len(dseñal1), len(dseñal2), mode='full')
     lag = lags[np.argmax(abs(corr))]
@@ -42,6 +129,10 @@ def Sincronizar2(tiempos,señal_referencia,señal_estimada):
         señal2_=señal_estimada[abs(lag):]
         señal1_=señal_referencia[0:len(señal_referencia)-abs(lag)]
         tiempos_=tiempos[:len(tiempos)-abs(lag)]
+    if lag ==0:
+        señal2_=señal_estimada
+        señal1_=señal_referencia
+        tiempos_=tiempos
     return tiempos_,señal1_,señal2_
 
 def Escalar(señal_estimada,señal):
