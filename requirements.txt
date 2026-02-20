@@ -1,0 +1,7 @@
+numpy>=1.23
+scipy>=1.10
+matplotlib>=3.7
+ipywidgets>=8.0
+ipyfilechooser>=0.6
+ipython>=8.0
+notebook>=7.0
