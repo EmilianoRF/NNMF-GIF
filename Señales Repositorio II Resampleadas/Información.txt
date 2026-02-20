@@ -1,0 +1,1 @@
+Las señales están guardadas por columnas de la forma: tiempos, speech, flujo, dflujo, area,darea

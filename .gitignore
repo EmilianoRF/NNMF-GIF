@@ -1,6 +1,6 @@
 *.pdf
 *.wav
-*.txt
+*.mat
 *.avi
 *.zip
 *.pyc

@@ -1,0 +1,4 @@
+El registro 006 está mal grabado.
+En el registro 008 no se pronuncia la U.
+En el registro 009 no se pronuncia la U.
+Los registros 010 y 011 solo tienen una vocal.

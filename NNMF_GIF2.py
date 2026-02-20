@@ -4,7 +4,7 @@ from scipy.linalg import solve_toeplitz
 import Funciones as Funciones
 
 class NNMF_GIF:
-    def __init__(self, speech, acelerometro, tiempos, fs,
+    def __init__(self, speech, acelerometro, dEGG,tiempos, fs,
                  ventana='boxcar',
                  duracion=5.5,
                  hop=1,
@@ -22,10 +22,11 @@ class NNMF_GIF:
         # ============ Parámetros por defecto
         self.speech = speech
         self.acc  = acelerometro
+        self.dEGG = dEGG
         self.fs     = fs
         self.tiempos = tiempos
-        self.to = tiempos[0]
-        self.tf = tiempos[-1]
+        self.to = -1
+        self.tf = -1
         self.duracion_ventana = duracion # En ms
         self.long_ventana_espect = int(np.round(fs * duracion / 1000))
         self.desplazamiento   = hop    
@@ -37,7 +38,7 @@ class NNMF_GIF:
         self.n_pre_itereraciones = pre_iteraciones
         self.margen_error = margen_error/100
         self.orden_filtro_tracto = p_filtro
-        self.tiempos_gve = tiempos[p_filtro-1:len(tiempos)-p_filtro-1]
+        self.tiempos_gve = -1
         self.pre_enfasis = pre_enfasis
         self.guardar_proceso = guardar_proceso
         self.normalizar_espectrogramas = normalizar_espectrogramas
@@ -400,8 +401,64 @@ class NNMF_GIF:
                 self.proceso_dflujo2_acc.append(self.dflujo2_acc)
                 self.proceso_error_predic1_acc.append(self.error_predic1_acc)
                 self.proceso_error_predic2_acc.append(self.error_predic2_acc)
-            
+
+    def Sincronizar_por_energia(self):
+        matriz_speech, _ = Funciones.calcular_espectrograma(
+            self.speech,
+            fs=self.fs,
+            ventana=self.ventana,
+            duracion_ventana=self.duracion_ventana,
+            desplazamiento=self.desplazamiento,
+            pre_enfasis=self.pre_enfasis,
+            p=self.beta
+        )
+        matriz_acc, _ = Funciones.calcular_espectrograma(
+            self.acc,
+            fs=self.fs,
+            ventana=self.ventana,
+            duracion_ventana=self.duracion_ventana,
+            desplazamiento=self.desplazamiento,
+            pre_enfasis=self.pre_enfasis,
+            p=self.beta
+        )
+
+        energia_speech = np.sum(np.abs(matriz_speech)**2, axis=0)
+        energia_acc    = np.sum(np.abs(matriz_acc)**2, axis=0)
+
+        energia_speech = energia_speech / np.max(energia_speech)
+        energia_acc    = energia_acc / np.max(energia_acc)
+
+        energia_speech = energia_speech -  np.mean(energia_speech)
+        energia_acc    = energia_acc - np.mean(energia_acc)
+
+        corr = sig.correlate(energia_speech, energia_acc, mode='full')
+        lags = sig.correlation_lags(len(energia_speech),len(energia_acc),mode='full')
+
+        lag = lags[np.argmax(np.abs(corr))]
+
+        if lag > 0:
+            # speech adelantada
+            self.speech = self.speech[lag:]
+            self.acc    = self.acc[:len(self.speech)]
+            self.tiempos = self.tiempos[lag:]
+            self.dEGG = self.dEGG[lag:] 
+
+        elif lag < 0:
+            lag = abs(lag)
+            self.acc    = self.acc[lag:]
+            self.speech = self.speech[:len(self.acc)]
+            self.tiempos = self.tiempos[:len(self.speech)]
+            self.dEGG = self.dEGG[:len(self.speech)]
+
+        self.to = self.tiempos[0]
+        self.tf = self.tiempos[-1]
+        self.tiempos_espec = self.tiempos[self.long_ventana_espect - 1:]
+        self.dEGG = self.dEGG[self.long_ventana_espect - 1:]
+        self.tiempos_eH = self.tiempos[self.long_ventana_espect-1:len(self.tiempos)-self.orden_filtro_tracto-1]
+        self.tiempos_gve = self.tiempos[self.orden_filtro_tracto-1:len(self.tiempos)-self.orden_filtro_tracto-1]
+
 #======================================================  Funciones Principales 
+
 
     def NNMF(self):
         X = self.espectrograma
@@ -448,6 +505,7 @@ class NNMF_GIF:
         self.dif_error_H2 = np.array(dif_error_H2)
 
     def Espectrograma(self):
+        self.Sincronizar_por_energia()
         matriz_speech, espec_speech = Funciones.calcular_espectrograma(self.speech,
                                                                        fs=self.fs,
                                                                        ventana=self.ventana,
@@ -463,7 +521,6 @@ class NNMF_GIF:
                                                                        pre_enfasis=self.pre_enfasis,
                                                                        p=self.beta)
 
-
         self.matriz_STFT_speech = matriz_speech
         self.matriz_STFT_acc   = matriz_acc
 
@@ -477,8 +534,6 @@ class NNMF_GIF:
         self.espectrograma_speech = espec_speech
         self.espectrograma_acc = espec_acc       
 
-        self.tiempos_espec = self.tiempos[self.long_ventana_espect - 1:]
-        self.tiempos_eH = self.tiempos[self.long_ventana_espect-1:len(self.tiempos)-self.orden_filtro_tracto-1]
 
         self.fo_espec = 0
         self.ff_espec = self.fs / 2
