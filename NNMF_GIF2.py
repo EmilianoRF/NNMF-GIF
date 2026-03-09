@@ -14,8 +14,10 @@ class NNMF_GIF:
                  margen_error = 1,
                  p_filtro=12,
                  alfa=0.99,
-                 beta = 0.55,
-                 pre_enfasis =True,
+                 beta_speech = 0.55,
+                 beta_acc    = 0.55,
+                 pre_enfasis_speech = True,
+                 pre_enfasis_acc    = True,
                  guardar_proceso = False,
                  normalizar_espectrogramas = False):
 
@@ -31,7 +33,8 @@ class NNMF_GIF:
         self.long_ventana_espect = int(np.round(fs * duracion / 1000))
         self.desplazamiento   = hop    
         self.ventana = ventana
-        self.beta = beta
+        self.beta_speech = beta_speech
+        self.beta_acc = beta_acc
         self.alfa = alfa
         self.norma         = norma
         self.n_iteraciones = iteraciones
@@ -39,11 +42,14 @@ class NNMF_GIF:
         self.margen_error = margen_error/100
         self.orden_filtro_tracto = p_filtro
         self.tiempos_gve = -1
-        self.pre_enfasis = pre_enfasis
+        self.pre_enfasis_speech = pre_enfasis_speech
+        self.pre_enfasis_acc = pre_enfasis_acc       
         self.guardar_proceso = guardar_proceso
         self.normalizar_espectrogramas = normalizar_espectrogramas
+        self.lag = None
         #-----------------------------------------------------------------------------------
-
+        self.speech_sinc = -1
+        self.acc_sinc = -1
         self.pre_itereraciones = -1
         self.itereraciones = -1
 
@@ -409,8 +415,8 @@ class NNMF_GIF:
             ventana=self.ventana,
             duracion_ventana=self.duracion_ventana,
             desplazamiento=self.desplazamiento,
-            pre_enfasis=self.pre_enfasis,
-            p=self.beta
+            pre_enfasis=self.pre_enfasis_speech,
+            p=self.beta_speech
         )
         matriz_acc, _ = Funciones.calcular_espectrograma(
             self.acc,
@@ -418,8 +424,8 @@ class NNMF_GIF:
             ventana=self.ventana,
             duracion_ventana=self.duracion_ventana,
             desplazamiento=self.desplazamiento,
-            pre_enfasis=self.pre_enfasis,
-            p=self.beta
+            pre_enfasis=self.pre_enfasis_acc,
+            p=self.beta_acc
         )
 
         energia_speech = np.sum(np.abs(matriz_speech)**2, axis=0)
@@ -435,10 +441,10 @@ class NNMF_GIF:
         lags = sig.correlation_lags(len(energia_speech),len(energia_acc),mode='full')
 
         lag = lags[np.argmax(np.abs(corr))]
-
+        self.lag = lag
         if lag > 0:
             # speech adelantada
-            self.speech = self.speech[lag:]
+            self.speech_ = self.speech[lag:]
             self.acc    = self.acc[:len(self.speech)]
             self.tiempos = self.tiempos[lag:]
             self.dEGG = self.dEGG[lag:] 
@@ -511,15 +517,15 @@ class NNMF_GIF:
                                                                        ventana=self.ventana,
                                                                        duracion_ventana=self.duracion_ventana,
                                                                        desplazamiento=self.desplazamiento,
-                                                                       pre_enfasis=self.pre_enfasis,
-                                                                       p=self.beta)
+                                                                       pre_enfasis=self.pre_enfasis_speech,
+                                                                       p=self.beta_speech)
         matriz_acc, espec_acc = Funciones.calcular_espectrograma(self.acc,
                                                                        fs=self.fs,
                                                                        ventana=self.ventana,
                                                                        duracion_ventana=self.duracion_ventana,
                                                                        desplazamiento=self.desplazamiento,
-                                                                       pre_enfasis=self.pre_enfasis,
-                                                                       p=self.beta)
+                                                                       pre_enfasis=self.pre_enfasis_acc,
+                                                                       p=self.beta_acc)
 
         self.matriz_STFT_speech = matriz_speech
         self.matriz_STFT_acc   = matriz_acc
@@ -548,11 +554,13 @@ class NNMF_GIF:
         self.energia_acc = [val / max_acc for val in energia_acc]
 
     def GIF(self):
-        if self.pre_enfasis:
-            señal_speech = sig.lfilter([1, -1], [1], self.speech)
-            señal_acc    = sig.lfilter([1, -1], [1], self.acc)           
+        if self.pre_enfasis_speech:
+            señal_speech = sig.lfilter([1, -1], [1], self.speech)      
         else:
             señal_speech = self.speech - np.mean(self.speech)
+        if self.pre_enfasis_acc:
+            señal_acc    = sig.lfilter([1, -1], [1], self.acc)
+        else:
             señal_acc    = self.acc - np.mean(self.acc)
 
         if self.guardar_proceso:
@@ -602,8 +610,8 @@ class NNMF_GIF:
         else:
             H1, H2 = self.H1, self.H2
 
-            a_W1_speech,polos_W1_speech,ceros_W1_speech  = self._resolver_toeplitz(self.W1_speech**(2/self.beta))
-            a_W2_speech,polos_W2_speech,ceros_W2_speech  = self._resolver_toeplitz(self.W2_speech**(2/self.beta))
+            a_W1_speech,polos_W1_speech,ceros_W1_speech  = self._resolver_toeplitz(self.W1_speech**(2/self.beta_speech))
+            a_W2_speech,polos_W2_speech,ceros_W2_speech  = self._resolver_toeplitz(self.W2_speech**(2/self.beta_speech))
 
             flujo_w1_speech = self._calcular_flujo(a_W1_speech, self.speech)
             flujo_w2_speech = self._calcular_flujo(a_W2_speech, self.speech)
@@ -623,8 +631,8 @@ class NNMF_GIF:
                                         ep1_speech,ep2_speech)
             
 
-            a_W1_acc,polos_W1_acc,ceros_W1_acc = self._resolver_toeplitz(self.W1_acc**(2/self.beta))
-            a_W2_acc,polos_W2_acc,ceros_W2_acc = self._resolver_toeplitz(self.W2_acc**(2/self.beta))
+            a_W1_acc,polos_W1_acc,ceros_W1_acc = self._resolver_toeplitz(self.W1_acc**(2/self.beta_acc))
+            a_W2_acc,polos_W2_acc,ceros_W2_acc = self._resolver_toeplitz(self.W2_acc**(2/self.beta_acc))
 
             flujo_w1_acc = self._calcular_flujo(a_W1_acc, self.acc)
             flujo_w2_acc = self._calcular_flujo(a_W2_acc, self.acc)
