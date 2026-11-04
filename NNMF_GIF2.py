@@ -4,52 +4,67 @@ from scipy.linalg import solve_toeplitz
 import Funciones as Funciones
 
 class NNMF_GIF:
-    def __init__(self, speech, acelerometro, dEGG,tiempos, fs,
-                 ventana='boxcar',
+    def __init__(self, speech, acelerometro, dEGG,tiempos,mascara_tiempos,fs,
+                 ventana='Rectangular',
                  duracion=5.5,
                  hop=1,
                  norma='frobenius',
                  pre_iteraciones=0,
-                 iteraciones=50,
-                 margen_error = 1,
-                 p_filtro=12,
-                 alfa=0.99,
+                 iteraciones=250,
+                 T = 10,
+                 delta = 10e-4,
+                 p_filtro_speech=12,
+                 alfa_speech=0.96,
+                 p_filtro_acc=12,
+                 alfa_acc=0.96,
                  beta_speech = 0.55,
                  beta_acc    = 0.55,
                  pre_enfasis_speech = True,
                  pre_enfasis_acc    = True,
-                 guardar_proceso = False,
-                 normalizar_espectrogramas = False):
+                 doble_pre_enfasis_acc = False,
+                 guardar_proceso = True,
+                 normalizar_espectrogramas = True,
+                 nombre_archivo = ''):
 
         # ============ Parámetros por defecto
         self.speech = speech
+        self.speech_pre_enfasis = -1
         self.acc  = acelerometro
+        self.acc_pre_enfasis = -1
         self.dEGG = dEGG
         self.fs     = fs
         self.tiempos = tiempos
-        self.to = -1
-        self.tf = -1
+        self.mascara_tiempos = mascara_tiempos
         self.duracion_ventana = duracion # En ms
         self.long_ventana_espect = int(np.round(fs * duracion / 1000))
         self.desplazamiento   = hop    
         self.ventana = ventana
         self.beta_speech = beta_speech
+        self.alfa_speech = alfa_speech
+        self.orden_filtro_tracto_speech = p_filtro_speech
         self.beta_acc = beta_acc
-        self.alfa = alfa
+        self.alfa_acc = alfa_acc
+        self.orden_filtro_tracto_acc = p_filtro_acc
         self.norma         = norma
         self.n_iteraciones = iteraciones
+        self.n_iteraciones_realizadas = -1
         self.n_pre_itereraciones = pre_iteraciones
-        self.margen_error = margen_error/100
-        self.orden_filtro_tracto = p_filtro
-        self.tiempos_gve = -1
+        self.T = T
+        self.delta = delta
         self.pre_enfasis_speech = pre_enfasis_speech
-        self.pre_enfasis_acc = pre_enfasis_acc       
+        self.pre_enfasis_acc = pre_enfasis_acc
+        self.doble_pre_enfasis_acc = doble_pre_enfasis_acc       
         self.guardar_proceso = guardar_proceso
         self.normalizar_espectrogramas = normalizar_espectrogramas
         self.lag = None
+        self.fo_espectrograma = 0
+        self.ff_espectrograma = fs / 2
+        self.nombre_archivo = nombre_archivo
         #-----------------------------------------------------------------------------------
         self.speech_sinc = -1
         self.acc_sinc = -1
+        self.tiempos_sinc = -1
+
         self.pre_itereraciones = -1
         self.itereraciones = -1
 
@@ -65,7 +80,8 @@ class NNMF_GIF:
 
 
         self.tiempos_espec = -1
-        self.tiempos_eH = -1
+        self.tiempos_eH_speech = -1
+        self.tiempos_eH_acc = -1
         self.fo_espec = -1
         self.ff_espec = -1
         self.espectrograma_aprox = -1
@@ -83,16 +99,20 @@ class NNMF_GIF:
         self.a_W1_speech = -1
         self.a_W2_speech = -1
         self.polos_W1_speech = -1
+        self.polos_W1_speech_originales = -1
         self.ceros_W1_speech = -1
         self.polos_W2_speech = -1
+        self.polos_W2_speech_originales = -1
         self.ceros_W2_speech = -1
 
         
         self.a_W1_acc = -1
         self.a_W2_acc = -1
         self.polos_W1_acc = -1
+        self.polos_W1_acc_originales = -1
         self.ceros_W1_acc = -1
         self.polos_W2_acc = -1
+        self.polos_W1_acc_originales = -1
         self.ceros_W2_acc = -1
 
         self.flujo1_speech = -1
@@ -123,19 +143,15 @@ class NNMF_GIF:
 
         self.dif_error_W1_speech = -1
         self.dif_error_W2_speech = -1
-        self.dif_error_H1_speech = -1
-        self.dif_error_H2_speech = -1
-
         self.dif_error_W1_acc = -1
         self.dif_error_W2_acc = -1
-        self.dif_error_H1_acc = -1
-        self.dif_error_H2_acc = -1
 
 
 
         #-----------------------------------------------------------------------------------
         self.proceso_espectrograma = []
         self.proceso_espectrograma_aprox = []
+        self.proceso_espectrograma_aprox_plot = []
         self.proceso_dif_error_X = []
         self.proceso_H1 = []
         self.proceso_H2 = []
@@ -149,8 +165,10 @@ class NNMF_GIF:
         self.proceso_a_W1_speech = []
         self.proceso_a_W2_speech = []
         self.proceso_polos_W1_speech = []
+        self.proceso_polos_W1_speech_originales = []
         self.proceso_ceros_W1_speech = []
         self.proceso_polos_W2_speech = []
+        self.proceso_polos_W2_speech_originales = []
         self.proceso_ceros_W2_speech = []
 
         self.proceso_flujo1_speech = []
@@ -177,8 +195,10 @@ class NNMF_GIF:
         self.proceso_a_W1_acc = []
         self.proceso_a_W2_acc = []
         self.proceso_polos_W1_acc = []
+        self.proceso_polos_W1_acc_originales = []
         self.proceso_ceros_W1_acc = []
         self.proceso_polos_W2_acc = []
+        self.proceso_polos_W2_acc_originales = []
         self.proceso_ceros_W2_acc = []
 
         self.proceso_flujo1_acc = []
@@ -222,7 +242,9 @@ class NNMF_GIF:
     def _iterar(self, W, H, X, norma, num_iter, error,
                 dif_error_X, dif_error_W1_speech, dif_error_W2_speech,dif_error_W1_acc, dif_error_W2_acc, dif_error_H1, dif_error_H2):
         X_aprox = W @ H
-        for _ in range(num_iter):
+
+
+        for t in range(num_iter):
             W_old, H_old = W.copy(), H.copy()
             W, H = self._actualizar_WH(W, H, X, X_aprox, norma)
             X_aprox = W @ H
@@ -254,56 +276,87 @@ class NNMF_GIF:
 
             if self.guardar_proceso:
                 self.proceso_espectrograma_aprox.append(X_aprox)
+                self.proceso_espectrograma_aprox_plot.append(np.vstack((X_aprox[mid:,:], X_aprox[:mid,:])))
                 self.proceso_W1_speech.append(W[:mid,0])
                 self.proceso_W2_speech.append(W[:mid,1])
                 self.proceso_W1_acc.append(W[mid:,0])
                 self.proceso_W2_acc.append(W[mid:,1])
                 self.proceso_H1.append(H[0,:])
                 self.proceso_H2.append(H[1,:])
-
+            if t >=self.T and t>=100:
+                if abs(error[t-self.T] - error[t]) <= self.delta*error[t]:
+                    self.n_iteraciones = t
+                    break
         return W, H, X_aprox
 
-    def _resolver_toeplitz(self, W):
+    def _resolver_toeplitz(self, W, orden_filtro):
         W_  = np.concatenate((W, np.flip(W)[1:-1]))
         r_W = np.fft.ifft(W_).real
         a_  = solve_toeplitz(
-            (r_W[0:self.orden_filtro_tracto], r_W[0:self.orden_filtro_tracto]),
-            r_W[1:self.orden_filtro_tracto+1]
+            (r_W[0:orden_filtro], r_W[0:orden_filtro]),
+            r_W[1:orden_filtro+1]
         )
-        a_W= np.concatenate(([1.0], -a_))
-        num      = np.zeros(len(a_W))
-        num[0]   = 1
-        ceros_W,polos_W,_ = sig.tf2zpk(num,a_W)
-        return a_W,polos_W,ceros_W
+        a_W_originales = np.concatenate(([1.0], -a_))
+        num = np.zeros(len(a_W_originales))
+        num[0] = 1
+        ceros_W, polos_W, _ = sig.tf2zpk(num, a_W_originales)
+
+        polos_originales = polos_W
+        polos_ = [p for p in polos_W if not (((p.real > 0.0) and (p.imag == 0.0)) or ((p.real > 0.0) and (np.abs(p) < 0.8)))]
+
+        b, a = sig.zpk2tf(np.zeros(len(polos_)), polos_, k=1)
+        a_W = a
+
+        ganancia_dc = np.sum(a_W)   # A(z=1)
+        if np.abs(ganancia_dc) > 1e-8:
+            a_W = a_W / ganancia_dc
+
+        polos_W = polos_
+        return a_W, polos_W, ceros_W, a_W_originales,polos_originales
 
     def _normalizar(self, señal):
         maximo = np.max(np.abs(señal))
         return señal / maximo if maximo > 1 else señal
 
-    def _calcular_flujo(self, a_W, señal):
-        flujo = sig.lfilter(a_W, [1, -self.alfa], señal)
+    def _calcular_flujo(self, a_W, señal,alfa):
+        flujo = sig.lfilter(a_W, [1, -alfa], señal)
         return self._normalizar(flujo)
 
-    def _calcular_derivada(self, flujo):
-        dflujo = np.gradient(flujo, self.tiempos)
-        return self._normalizar(dflujo)
+
+    def _filtrado_inverso(self, a_W,señal,alfa):
+        dflujo = sig.lfilter(a_W, [1], señal)
+        flujo = sig.lfilter([1], [1, -alfa], dflujo)     
+        dflujo = dflujo[self.mascara_tiempos]
+        dflujo = dflujo/abs(min(dflujo))
+        flujo = flujo[self.mascara_tiempos]
+        flujo = Funciones.Normalizar(flujo)
+        return dflujo,flujo
 
     def _calcular_error_prediccion(self, a_W, señal):
         ep = sig.lfilter(b=a_W, a=[1], x=señal)
-        return self._normalizar(ep)
+        return ep
 
-    def _seleccionar_candidato(self, señal, H1, H2,
+    def _seleccionar_candidato(self, señal,orden_filtro_tracto,H1, H2,
                                a_W1, a_W2,
                                polos_W1,polos_W2,
+                               polos_W1_originales,polos_W2_originales,
                                ceros_W1,ceros_W2,
                                flujo_w1, flujo_w2,
                                dflujo_w1, dflujo_w2,
                                ep1, ep2, i=None):
 
-        parametro_e1H1 = np.sum(H1[:len(H1)-self.orden_filtro_tracto-1]*
-                                np.abs(ep1[self.long_ventana_espect-1:len(ep1)-self.orden_filtro_tracto-1]))/np.sum(H1[:len(H1)-self.orden_filtro_tracto-1])
-        parametro_e2H2 = np.sum(H2[:len(H2)-self.orden_filtro_tracto-1]*
-                                np.abs(ep2[self.long_ventana_espect-1:len(ep2)-self.orden_filtro_tracto-1]))/np.sum(H2[:len(H2)-self.orden_filtro_tracto-1])  
+
+        ep1_ = ep1
+        ep2_ = ep2
+        ep1  = ep1[self.tiempos >= H1[0]]
+        ep1  = ep1[:len(H1)]
+        e1H1 = H1*np.abs(ep1)
+        parametro_e1H1 = np.sum(H1*np.abs(ep1))/np.sum(H1)
+
+        ep2=ep2[self.tiempos >= H2[0]]
+        ep2 = ep2[:len(H2)]
+        e2H2 = H2*np.abs(ep2)
+        parametro_e2H2 = np.sum(H2*np.abs(ep2))/np.sum(H2)  
         
         if señal == 'speech':
             if parametro_e1H1 < parametro_e2H2:
@@ -311,43 +364,57 @@ class NNMF_GIF:
                 self.a_W2_speech = a_W2
                 self.polos_W1_speech = polos_W1
                 self.polos_W2_speech = polos_W2
+                self.polos_W1_speech_originales = polos_W1_originales
+                self.polos_W2_speech_originales = polos_W2_originales
                 self.ceros_W1_speech = ceros_W1
                 self.ceros_W2_speech = ceros_W2
-                self.flujo1_speech = flujo_w1[self.orden_filtro_tracto-1:len(flujo_w1)-self.orden_filtro_tracto-1]
-                self.flujo2_speech = flujo_w2[self.orden_filtro_tracto-1:len(flujo_w2)-self.orden_filtro_tracto-1]
-                self.dflujo1_speech = dflujo_w1[self.orden_filtro_tracto-1:len(dflujo_w1)-self.orden_filtro_tracto-1]
-                self.dflujo2_speech = dflujo_w2[self.orden_filtro_tracto-1:len(dflujo_w2)-self.orden_filtro_tracto-1]
-                self.error_predic1_speech = ep1[self.orden_filtro_tracto-1:len(ep1)-self.orden_filtro_tracto-1]
-                self.error_predic2_speech = ep2[self.orden_filtro_tracto-1:len(ep2)-self.orden_filtro_tracto-1]
+                self.flujo1_speech = flujo_w1
+                self.flujo2_speech = flujo_w2
+                self.dflujo1_speech = dflujo_w1
+                self.dflujo2_speech = dflujo_w2
+                self.error_predic1_speech = ep1_[self.mascara_tiempos]
+                self.error_predic2_speech = ep2_[self.mascara_tiempos]
+                self.e1H1_speech = e1H1
+                self.e2H2_speech = e2H2
+                self.suma_e1H1_speech = parametro_e1H1
+                self.suma_e2H2_speech = parametro_e2H2
             else:
                 W2 = self.W2_speech
                 W1 = self.W1_speech
-                self.W1 = W1
-                self.W2 = W2
+                self.W1_speech = W2
+                self.W2_speech = W1
                 self.H1 = H2
                 self.H2 = H1
                 self.a_W1_speech = a_W2
                 self.a_W2_speech = a_W1
                 self.polos_W1_speech = polos_W2
                 self.polos_W2_speech = polos_W1
+                self.polos_W2_speech_originales = polos_W1_originales
+                self.polos_W1_speech_originales = polos_W2_originales
                 self.ceros_W1_speech = ceros_W2
                 self.ceros_W2_speech = ceros_W1
-                self.flujo1_speech  = flujo_w2[self.orden_filtro_tracto-1:len(flujo_w2)-self.orden_filtro_tracto-1]
-                self.flujo2_speech  = flujo_w1[self.orden_filtro_tracto-1:len(flujo_w1)-self.orden_filtro_tracto-1]
-                self.dflujo1_speech = dflujo_w2[self.orden_filtro_tracto-1:len(dflujo_w2)-self.orden_filtro_tracto-1]
-                self.dflujo2_speech =  dflujo_w1[self.orden_filtro_tracto-1:len(dflujo_w1)-self.orden_filtro_tracto-1]
-                self.error_predic1_speech = ep2[self.orden_filtro_tracto-1:len(ep2)-self.orden_filtro_tracto-1]
-                self.error_predic2_speech = ep1[self.orden_filtro_tracto-1:len(ep1)-self.orden_filtro_tracto-1]
-
+                self.flujo1_speech  = flujo_w2
+                self.flujo2_speech  = flujo_w1
+                self.dflujo1_speech = dflujo_w2
+                self.dflujo2_speech =  dflujo_w1
+                self.error_predic1_speech = ep2_[self.mascara_tiempos]
+                self.error_predic2_speech = ep1_[self.mascara_tiempos]
+                self.e1H1_speech = e2H2
+                self.e2H2_speech = e1H1
+                self.suma_e1H1_speech = parametro_e2H2
+                self.suma_e2H2_speech = parametro_e1H1
+             
             if self.guardar_proceso:
-                self.proceso_W1_speech[i] = self.W1_speech
-                self.proceso_W2_speech[i] = self.W2_speech
-                self.proceso_H1[i] = self.H1
-                self.proceso_H2[i] = self.H2
+                #self.proceso_W1_speech[i] = self.W1_speech
+                #self.proceso_W2_speech[i] = self.W2_speech
+                #self.proceso_H1[i] = self.H1
+                #self.proceso_H2[i] = self.H2
                 self.proceso_a_W1_speech.append(self.a_W1_speech)
                 self.proceso_a_W2_speech.append(self.a_W2_speech)
                 self.proceso_polos_W1_speech.append(self.polos_W1_speech)
+                self.proceso_polos_W1_speech_originales.append(self.polos_W1_speech_originales)
                 self.proceso_polos_W2_speech.append(self.polos_W2_speech)
+                self.proceso_polos_W2_speech_originales.append(self.polos_W2_speech_originales)
                 self.proceso_ceros_W1_speech.append(self.ceros_W1_speech)
                 self.proceso_ceros_W2_speech.append(self.ceros_W2_speech)                                
                 self.proceso_flujo1_speech.append(self.flujo1_speech)
@@ -356,49 +423,65 @@ class NNMF_GIF:
                 self.proceso_dflujo2_speech.append(self.dflujo2_speech)
                 self.proceso_error_predic1_speech.append(self.error_predic1_speech)
                 self.proceso_error_predic2_speech.append(self.error_predic2_speech)
+            
         else:
             if parametro_e1H1 < parametro_e2H2:
                 self.a_W1_acc = a_W1
                 self.a_W2_acc = a_W2
                 self.polos_W1_acc = polos_W1
                 self.polos_W2_acc = polos_W2
+                self.polos_W1_acc_originales = polos_W1_originales
+                self.polos_W2_acc_originales = polos_W2_originales
                 self.ceros_W1_acc = ceros_W1
                 self.ceros_W2_acc = ceros_W2
-                self.flujo1_acc = flujo_w1[self.orden_filtro_tracto-1:len(flujo_w1)-self.orden_filtro_tracto-1]
-                self.flujo2_acc = flujo_w2[self.orden_filtro_tracto-1:len(flujo_w2)-self.orden_filtro_tracto-1]
-                self.dflujo1_acc = dflujo_w1[self.orden_filtro_tracto-1:len(dflujo_w1)-self.orden_filtro_tracto-1]
-                self.dflujo2_acc = dflujo_w2[self.orden_filtro_tracto-1:len(dflujo_w2)-self.orden_filtro_tracto-1]
-                self.error_predic1_acc = ep1[self.orden_filtro_tracto-1:len(ep1)-self.orden_filtro_tracto-1]
-                self.error_predic2_acc = ep2[self.orden_filtro_tracto-1:len(ep2)-self.orden_filtro_tracto-1]
+                self.flujo1_acc = flujo_w1
+                self.flujo2_acc = flujo_w2
+                self.dflujo1_acc = dflujo_w1
+                self.dflujo2_acc = dflujo_w2
+                self.error_predic1_acc = ep1_[self.mascara_tiempos]
+                self.error_predic2_acc = ep2_[self.mascara_tiempos]
+                self.e1H1_acc = e1H1
+                self.e2H2_acc = e2H2
+                self.suma_e1H1_acc = parametro_e1H1
+                self.suma_e2H2_acc = parametro_e2H2
             else:
                 W2 = self.W2_acc
                 W1 = self.W1_acc
-                self.W1 = W2
-                self.W2 = W1
+                self.W1_acc = W2
+                self.W2_acc = W1
                 self.H1 = H2
                 self.H2 = H1
                 self.a_W1_acc = a_W2 
                 self.a_W2_acc = a_W1
                 self.polos_W1_acc = polos_W2
                 self.polos_W2_acc = polos_W1
+                self.polos_W2_acc_originales = polos_W1_originales
+                self.polos_W1_acc_originales = polos_W2_originales
                 self.ceros_W1_acc = ceros_W2
                 self.ceros_W2_acc = ceros_W1
-                self.flujo1_acc = flujo_w2[self.orden_filtro_tracto-1:len(flujo_w2)-self.orden_filtro_tracto-1]
-                self.flujo2_acc = flujo_w1[self.orden_filtro_tracto-1:len(flujo_w1)-self.orden_filtro_tracto-1]
-                self.dflujo1_acc = dflujo_w2[self.orden_filtro_tracto-1:len(dflujo_w2)-self.orden_filtro_tracto-1]
-                self.dflujo2_acc = dflujo_w1[self.orden_filtro_tracto-1:len(dflujo_w1)-self.orden_filtro_tracto-1]
-                self.error_predic1_acc = ep2[self.orden_filtro_tracto-1:len(ep2)-self.orden_filtro_tracto-1]
-                self.error_predic2_acc = ep1[self.orden_filtro_tracto-1:len(ep1)-self.orden_filtro_tracto-1]
+                self.flujo1_acc = flujo_w2
+                self.flujo2_acc = flujo_w1
+                self.dflujo1_acc = dflujo_w2
+                self.dflujo2_acc = dflujo_w1
+                self.error_predic1_acc = ep2_[self.mascara_tiempos]
+                self.error_predic2_acc = ep1_[self.mascara_tiempos]
+                self.e1H1_acc = e2H2
+                self.e2H2_acc = e1H1
+                self.suma_e1H1_acc = parametro_e2H2
+                self.suma_e2H2_acc = parametro_e1H1
 
+            
             if self.guardar_proceso:
-                self.proceso_W1_acc[i] = self.W1_acc
-                self.proceso_W2_acc[i] = self.W2_acc
-                self.proceso_H1[i] = self.H1
-                self.proceso_H2[i] = self.H2
+                #self.proceso_W1_acc[i] = self.W1_acc
+                #self.proceso_W2_acc[i] = self.W2_acc
+                #self.proceso_H1[i] = self.H1
+                #self.proceso_H2[i] = self.H2
                 self.proceso_a_W1_acc.append(self.a_W1_acc)
                 self.proceso_a_W2_acc.append(self.a_W2_acc)
                 self.proceso_polos_W1_acc.append(self.polos_W1_acc)
+                self.proceso_polos_W1_acc_originales.append(self.polos_W1_acc_originales)
                 self.proceso_polos_W2_acc.append(self.polos_W2_acc)
+                self.proceso_polos_W2_acc_originales.append(self.polos_W2_acc_originales)
                 self.proceso_ceros_W1_acc.append(self.ceros_W1_acc)
                 self.proceso_ceros_W2_acc.append(self.ceros_W2_acc)     
                 self.proceso_flujo1_acc.append(self.flujo1_acc)
@@ -407,6 +490,7 @@ class NNMF_GIF:
                 self.proceso_dflujo2_acc.append(self.dflujo2_acc)
                 self.proceso_error_predic1_acc.append(self.error_predic1_acc)
                 self.proceso_error_predic2_acc.append(self.error_predic2_acc)
+                
 
     def Sincronizar_por_energia(self):
         matriz_speech, _ = Funciones.calcular_espectrograma(
@@ -431,51 +515,66 @@ class NNMF_GIF:
         energia_speech = np.sum(np.abs(matriz_speech)**2, axis=0)
         energia_acc    = np.sum(np.abs(matriz_acc)**2, axis=0)
 
-        energia_speech = energia_speech / np.max(energia_speech)
-        energia_acc    = energia_acc / np.max(energia_acc)
+
 
         energia_speech = energia_speech -  np.mean(energia_speech)
         energia_acc    = energia_acc - np.mean(energia_acc)
+        energia_speech = energia_speech / np.max(energia_speech)
+        energia_acc    = energia_acc / np.max(energia_acc)
 
         corr = sig.correlate(energia_speech, energia_acc, mode='full')
         lags = sig.correlation_lags(len(energia_speech),len(energia_acc),mode='full')
 
         lag = lags[np.argmax(np.abs(corr))]
+        #lag = 0
         self.lag = lag
+        tiempos_ = self.tiempos
         if lag > 0:
             # speech adelantada
-            self.speech_ = self.speech[lag:]
-            self.acc    = self.acc[:len(self.speech)]
-            self.tiempos = self.tiempos[lag:]
+            self.speech_sinc = self.speech[lag:]
+            self.acc_sinc    = self.acc[:len(self.speech_sinc)]
+            tiempos_ = self.tiempos[lag:]
             self.dEGG = self.dEGG[lag:] 
 
         elif lag < 0:
             lag = abs(lag)
-            self.acc    = self.acc[lag:]
-            self.speech = self.speech[:len(self.acc)]
-            self.tiempos = self.tiempos[:len(self.speech)]
-            self.dEGG = self.dEGG[:len(self.speech)]
+            self.acc_sinc    = self.acc[lag:]
+            self.speech_sinc = self.speech[:len(self.acc_sinc)]
+            tiempos_ = self.tiempos[:len(self.speech_sinc)]
+            self.dEGG = self.dEGG[:len(self.speech_sinc)]
+        elif lag == 0:
+            self.speech_sinc = self.speech
+            self.acc_sinc    = self.acc
+            tiempos_ = self.tiempos
+            self.dEGG = self.dEGG 
 
-        self.to = self.tiempos[0]
-        self.tf = self.tiempos[-1]
-        self.tiempos_espec = self.tiempos[self.long_ventana_espect - 1:]
-        self.dEGG = self.dEGG[self.long_ventana_espect - 1:]
-        self.tiempos_eH = self.tiempos[self.long_ventana_espect-1:len(self.tiempos)-self.orden_filtro_tracto-1]
-        self.tiempos_gve = self.tiempos[self.orden_filtro_tracto-1:len(self.tiempos)-self.orden_filtro_tracto-1]
-
+        self.tiempos_espectrograma_sincronizado = tiempos_[self.long_ventana_espect - 1:]
+        self.dEGG_sincronizado= self.dEGG[self.long_ventana_espect - 1:]
+        #self.tiempos_eH_speech = self.tiempos[self.long_ventana_espect-1:len(self.tiempos)-self.orden_filtro_tracto_speech-1]
+        #self.tiempos_gve_speech = self.tiempos[self.orden_filtro_tracto_speech-1:len(self.tiempos)-self.orden_filtro_tracto_speech-1]
+        #self.tiempos_eH_acc = self.tiempos[self.long_ventana_espect-1:len(self.tiempos)-self.orden_filtro_tracto_acc-1]
+        #self.tiempos_gve_acc = self.tiempos[self.orden_filtro_tracto_acc-1:len(self.tiempos)-self.orden_filtro_tracto_acc-1]
+        self.tiempos_eH_speech = tiempos_[self.long_ventana_espect-1:]
+        self.tiempos_gve_speech = self.tiempos[self.mascara_tiempos]
+        self.tiempos_eH_acc = tiempos_[self.long_ventana_espect-1:]
+        self.tiempos_gve_acc = self.tiempos[self.mascara_tiempos]
 #======================================================  Funciones Principales 
 
 
     def NNMF(self):
-        X = self.espectrograma
+        X = self.espectrograma_sincronizado
         N, M = X.shape
         error, dif_error_X, dif_error_W1_speech, dif_error_W2_speech,dif_error_W1_acc, dif_error_W2_acc, dif_error_H1, dif_error_H2 = [], [], [], [], [], [],[],[]
 
         # Inicialización de W y H
-        idx_max = np.argmax(self.energia_speech)
-        idx_min = np.argmin(self.energia_speech)
-        W = np.vstack([self.espectrograma[:, idx_max], self.espectrograma[:, idx_min]]).T
-        H = np.vstack([np.random.rand(M), 1 - np.random.rand(M)])
+        idx_max = np.argmax(self.energia_speech_sincronizado)
+        idx_min = np.argmin(self.energia_speech_sincronizado)
+        W = np.vstack([self.espectrograma_sincronizado[:, idx_max], self.espectrograma_sincronizado[:, idx_min]]).T
+        fila1 = np.random.rand(M)
+        fila2 = 1-fila1
+        H = np.array([fila1,fila2])
+        
+        #H = np.vstack([np.random.rand(M), 1 - np.random.rand(M)])
 
         # Aproximación inicial
         X_aprox = W @ H
@@ -490,8 +589,8 @@ class NNMF_GIF:
         W, H, X_aprox = self._iterar(W, H, X, self.norma, self.n_iteraciones,
                                     error, dif_error_X, dif_error_W1_speech, dif_error_W2_speech,dif_error_W1_acc, dif_error_W2_acc, dif_error_H1, dif_error_H2)
 
-        # Guardar resultados finales
-        mid = N // 2  # punto de corte
+        # Guardo los resultados
+        mid = N // 2 
         self.W1_speech = W[:mid,0]
         self.W2_speech = W[:mid,1]
         self.W1_acc = W[mid:,0]
@@ -511,7 +610,8 @@ class NNMF_GIF:
         self.dif_error_H2 = np.array(dif_error_H2)
 
     def Espectrograma(self):
-        self.Sincronizar_por_energia()
+
+        # Primero calculos los espectrogramas originales
         matriz_speech, espec_speech = Funciones.calcular_espectrograma(self.speech,
                                                                        fs=self.fs,
                                                                        ventana=self.ventana,
@@ -525,83 +625,137 @@ class NNMF_GIF:
                                                                        duracion_ventana=self.duracion_ventana,
                                                                        desplazamiento=self.desplazamiento,
                                                                        pre_enfasis=self.pre_enfasis_acc,
+                                                                       doble_pre_enfasis=self.doble_pre_enfasis_acc,
                                                                        p=self.beta_acc)
 
-        self.matriz_STFT_speech = matriz_speech
-        self.matriz_STFT_acc   = matriz_acc
+        self.matriz_STFT_speech_original = matriz_speech
+        self.matriz_STFT_acc_original   = matriz_acc
 
         if self.normalizar_espectrogramas:
             espec_speech = espec_speech/espec_speech.max()
             espec_acc    = espec_acc /espec_acc.max()         
 
-        self.espectrograma = np.vstack([espec_speech, espec_acc])
-        self.espectrograma_plot = np.vstack([espec_acc, espec_speech])
+        self.espectrograma_original = np.vstack([espec_speech, espec_acc])
+        # Por la forma en que matplotlib representa las imagenes como matrices, tengo que invertir el orden de los espectrogramas solo para graficar
+        self.espectrograma_plot_original = np.vstack([espec_acc, espec_speech])
 
-        self.espectrograma_speech = espec_speech
-        self.espectrograma_acc = espec_acc       
+        self.espectrograma_speech_original = espec_speech
+        self.espectrograma_acc_original = espec_acc       
 
+        #self.to_espectrograma_original = self.tiempos[0]
+        #self.tf_espectrograma_original = self.tiempos[-1]
+        self.tiempos_espectrograma_original = self.tiempos[self.long_ventana_espect - 1:]
+        self.dEGG_original = self.dEGG[self.long_ventana_espect - 1:]
+        self.to_espectrograma_original = self.tiempos[0]+self.duracion_ventana
+        self.tf_espectrograma_original = self.tiempos[-1]
 
-        self.fo_espec = 0
-        self.ff_espec = self.fs / 2
-        self.to_espec = self.to+self.duracion_ventana
-        self.tf_espec = self.tf
-
-        energia_speech = [np.sum(np.abs(matriz_speech[:, i]) ** 2) for i in range(matriz_speech.shape[1])]
-        energia_acc    = [np.sum(np.abs(matriz_acc[:, i]) ** 2) for i in range(matriz_acc.shape[1])]
+        energia_speech = [np.sum(np.abs(espec_speech[:, i]) ** 2) for i in range(matriz_speech.shape[1])]
+        energia_acc    = [np.sum(np.abs(espec_acc[:, i]) ** 2) for i in range(matriz_acc.shape[1])]
         max_speech     = max(energia_speech)
         max_acc        = max(energia_acc)
-        self.energia_speech = [val / max_speech for val in energia_speech]
-        self.energia_acc = [val / max_acc for val in energia_acc]
+        self.energia_speech_original = [val / max_speech for val in energia_speech]
+        self.energia_acc_original = [val / max_acc for val in energia_acc]
+
+        # Ahora sincronizo las señales y calculo los espectrogramas con los que voy a laburar
+        self.Sincronizar_por_energia()
+        matriz_speech, espec_speech = Funciones.calcular_espectrograma(self.speech_sinc,
+                                                                       fs=self.fs,
+                                                                       ventana=self.ventana,
+                                                                       duracion_ventana=self.duracion_ventana,
+                                                                       desplazamiento=self.desplazamiento,
+                                                                       pre_enfasis=self.pre_enfasis_speech,
+                                                                       p=self.beta_speech)
+        matriz_acc, espec_acc = Funciones.calcular_espectrograma(self.acc_sinc,
+                                                                       fs=self.fs,
+                                                                       ventana=self.ventana,
+                                                                       duracion_ventana=self.duracion_ventana,
+                                                                       desplazamiento=self.desplazamiento,
+                                                                       pre_enfasis=self.pre_enfasis_acc,
+                                                                       doble_pre_enfasis=self.doble_pre_enfasis_acc,
+                                                                       p=self.beta_acc)
+
+        self.matriz_STFT_speech_sincronizado = matriz_speech
+        self.matriz_STFT_acc_sincronizado   = matriz_acc
+
+        if self.normalizar_espectrogramas:
+            espec_speech = espec_speech/espec_speech.max()
+            espec_acc    = espec_acc /espec_acc.max()         
+
+        self.espectrograma_sincronizado = np.vstack([espec_speech, espec_acc])
+        self.espectrograma_plot_sincronizado = np.vstack([espec_acc, espec_speech])
+
+        self.espectrograma_speech_sincronizado = espec_speech
+        self.espectrograma_acc_sincronizado = espec_acc       
+
+
+        #self.to_espectrograma_sincronizado = self.tiempos[0]+self.duracion_ventana
+        #self.tf_espectrograma_sincronizado = self.tiempos[-1]
+        self.to_espectrograma_sincronizado = self.tiempos_espectrograma_sincronizado[0]
+        self.tf_espectrograma_sincronizado = self.tiempos_espectrograma_sincronizado[-1]
+
+        energia_speech = [np.sum(np.abs(espec_speech[:, i]) ** 2) for i in range(matriz_speech.shape[1])]
+        energia_acc    = [np.sum(np.abs(espec_acc[:, i]) ** 2) for i in range(matriz_acc.shape[1])]
+        max_speech     = max(energia_speech)
+        max_acc        = max(energia_acc)
+        self.energia_speech_sincronizado = [val / max_speech for val in energia_speech]
+        self.energia_acc_sincronizado = [val / max_acc for val in energia_acc]
 
     def GIF(self):
         if self.pre_enfasis_speech:
-            señal_speech = sig.lfilter([1, -1], [1], self.speech)      
+            señal_speech = sig.lfilter([1, -1], [1], self.speech)
+            self.speech_pre_enfasis = señal_speech
         else:
             señal_speech = self.speech - np.mean(self.speech)
-        if self.pre_enfasis_acc:
-            señal_acc    = sig.lfilter([1, -1], [1], self.acc)
+        if self.doble_pre_enfasis_acc:
+            señal_acc = sig.lfilter([1, -2, 1], [1], self.acc)
+            self.acc_pre_enfasis = señal_acc
+        elif self.pre_enfasis_acc:
+            señal_acc = sig.lfilter([1, -1], [1], self.acc)
+            self.acc_pre_enfasis = señal_acc
         else:
-            señal_acc    = self.acc - np.mean(self.acc)
+            señal_acc = self.acc - np.mean(self.acc)
 
         if self.guardar_proceso:
             for i in range(self.n_iteraciones):
                 H1, H2 = self.proceso_H1[i], self.proceso_H2[i]
 
-                a_W1_speech,polos_W1_speech,ceros_W1_speech = self._resolver_toeplitz(self.proceso_W1_speech[i]**(2/self.beta))
-                a_W2_speech,polos_W2_speech,ceros_W2_speech = self._resolver_toeplitz(self.proceso_W2_speech[i]**(2/self.beta))
+                a_W1_speech,polos_W1_speech,ceros_W1_speech, a_W1_speech_originales,polos_W1_speech_originales = self._resolver_toeplitz(self.proceso_W1_speech[i]**(2/self.beta_speech),self.orden_filtro_tracto_speech)
+                a_W2_speech,polos_W2_speech,ceros_W2_speech, a_W2_speech_originales,polos_W2_speech_originales = self._resolver_toeplitz(self.proceso_W2_speech[i]**(2/self.beta_speech),self.orden_filtro_tracto_speech)
 
-                flujo_w1_speech = self._calcular_flujo(a_W1_speech, self.speech)
-                flujo_w2_speech = self._calcular_flujo(a_W2_speech, self.speech)
+                dflujo_w1_speech,flujo_w1_speech = self._filtrado_inverso(a_W1_speech, self.speech,self.alfa_speech)
+                dflujo_w2_speech,flujo_w2_speech = self._filtrado_inverso(a_W2_speech, self.speech,self.alfa_speech)
 
-                dflujo_w1_speech = self._calcular_derivada(flujo_w1_speech)
-                dflujo_w2_speech = self._calcular_derivada(flujo_w2_speech)
+                ep1_speech = self._calcular_error_prediccion(a_W1_speech_originales, señal_speech)
+                ep2_speech = self._calcular_error_prediccion(a_W2_speech_originales, señal_speech)
 
-                ep1_speech = self._calcular_error_prediccion(a_W1_speech, señal_speech)
-                ep2_speech = self._calcular_error_prediccion(a_W2_speech, señal_speech)
-
-                self._seleccionar_candidato('speech',H1,H2,
+                self._seleccionar_candidato('speech',self.orden_filtro_tracto_speech,H1,H2,
                                             a_W1_speech,a_W2_speech,
                                             polos_W1_speech,polos_W2_speech,
+                                            polos_W1_speech_originales,polos_W2_speech_originales,
                                             ceros_W1_speech,ceros_W2_speech,
                                             flujo_w1_speech,flujo_w2_speech,
                                             dflujo_w1_speech,dflujo_w2_speech,
                                             ep1_speech,ep2_speech,i)
                 
-                a_W1_acc,polos_W1_acc,ceros_W1_acc = self._resolver_toeplitz(self.proceso_W1_acc[i]**(2/self.beta))
-                a_W2_acc,polos_W2_acc,ceros_W2_acc = self._resolver_toeplitz(self.proceso_W2_acc[i]**(2/self.beta))
+                a_W1_acc,polos_W1_acc,ceros_W1_acc,a_W1_acc_originales, polos_W1_acc_originales = self._resolver_toeplitz(self.proceso_W1_acc[i]**(2/self.beta_acc),self.orden_filtro_tracto_acc)
+                a_W2_acc,polos_W2_acc,ceros_W2_acc,a_W2_acc_originales, polos_W2_acc_originales = self._resolver_toeplitz(self.proceso_W2_acc[i]**(2/self.beta_acc),self.orden_filtro_tracto_acc)
 
-                flujo_w1_acc = self._calcular_flujo(a_W1_acc, self.acc)
-                flujo_w2_acc = self._calcular_flujo(a_W2_acc, self.acc)
+                dflujo_w1_acc,flujo_w1_acc = self._filtrado_inverso(a_W1_acc, self.acc,self.alfa_acc)
+                dflujo_w2_acc,flujo_w2_acc = self._filtrado_inverso(a_W2_acc, self.acc,self.alfa_acc)
 
-                dflujo_w1_acc = self._calcular_derivada(flujo_w1_acc)
-                dflujo_w2_acc = self._calcular_derivada(flujo_w2_acc)
+                #flujo_w1_acc = self._calcular_flujo(a_W1_acc, self.acc,self.alfa_acc)
+                #flujo_w2_acc = self._calcular_flujo(a_W2_acc, self.acc,self.alfa_acc)
 
-                ep1_acc = self._calcular_error_prediccion(a_W1_acc, señal_acc)
-                ep2_acc = self._calcular_error_prediccion(a_W2_acc, señal_acc)
+                #dflujo_w1_acc = self._calcular_derivada(flujo_w1_acc)
+                #dflujo_w2_acc = self._calcular_derivada(flujo_w2_acc)
 
-                self._seleccionar_candidato('acc',H1,H2,
+                ep1_acc = self._calcular_error_prediccion(a_W1_acc_originales, señal_acc)
+                ep2_acc = self._calcular_error_prediccion(a_W2_acc_originales, señal_acc)
+
+                self._seleccionar_candidato('acc',self.orden_filtro_tracto_acc,H1,H2,
                                             a_W1_acc,a_W2_acc,
                                             polos_W1_acc,polos_W2_acc,
+                                            polos_W1_acc_originales,polos_W2_acc_originales,
                                             ceros_W1_acc,ceros_W2_acc,
                                             flujo_w1_acc,flujo_w2_acc,
                                             dflujo_w1_acc,dflujo_w2_acc,
@@ -610,42 +764,39 @@ class NNMF_GIF:
         else:
             H1, H2 = self.H1, self.H2
 
-            a_W1_speech,polos_W1_speech,ceros_W1_speech  = self._resolver_toeplitz(self.W1_speech**(2/self.beta_speech))
-            a_W2_speech,polos_W2_speech,ceros_W2_speech  = self._resolver_toeplitz(self.W2_speech**(2/self.beta_speech))
+            a_W1_speech,polos_W1_speech,ceros_W1_speech,a_W1_speech_originales, polos_W1_speech_originales   = self._resolver_toeplitz(self.W1_speech**(2/self.beta_speech),self.orden_filtro_tracto_speech)
+            a_W2_speech,polos_W2_speech,ceros_W2_speech,a_W2_speech_originales, polos_W2_speech_originales   = self._resolver_toeplitz(self.W2_speech**(2/self.beta_speech),self.orden_filtro_tracto_speech)
 
-            flujo_w1_speech = self._calcular_flujo(a_W1_speech, self.speech)
-            flujo_w2_speech = self._calcular_flujo(a_W2_speech, self.speech)
 
-            dflujo_w1_speech = self._calcular_derivada(flujo_w1_speech)
-            dflujo_w2_speech = self._calcular_derivada(flujo_w2_speech)
+            dflujo_w1_speech,flujo_w1_speech = self._filtrado_inverso(a_W1_speech, self.speech,self.alfa_speech)
+            dflujo_w2_speech,flujo_w2_speech = self._filtrado_inverso(a_W2_speech, self.speech,self.alfa_speech)
 
-            ep1_speech = self._calcular_error_prediccion(a_W1_speech, señal_speech)
-            ep2_speech = self._calcular_error_prediccion(a_W2_speech, señal_speech)
+            ep1_speech = self._calcular_error_prediccion(a_W1_speech_originales, señal_speech)
+            ep2_speech = self._calcular_error_prediccion(a_W2_speech_originales, señal_speech)
 
-            self._seleccionar_candidato('speech',H1,H2,
+            self._seleccionar_candidato('speech',self.orden_filtro_tracto_speech,H1,H2,
                                         a_W1_speech,a_W2_speech,
                                         polos_W1_speech,polos_W2_speech,
+                                        polos_W1_speech_originales,polos_W2_speech_originales,
                                         ceros_W1_speech,ceros_W2_speech,
                                         flujo_w1_speech,flujo_w2_speech,
                                         dflujo_w1_speech,dflujo_w2_speech,
                                         ep1_speech,ep2_speech)
             
 
-            a_W1_acc,polos_W1_acc,ceros_W1_acc = self._resolver_toeplitz(self.W1_acc**(2/self.beta_acc))
-            a_W2_acc,polos_W2_acc,ceros_W2_acc = self._resolver_toeplitz(self.W2_acc**(2/self.beta_acc))
+            a_W1_acc,polos_W1_acc,ceros_W1_acc,a_W1_acc_originales,polos_W1_acc_originales = self._resolver_toeplitz(self.W1_acc**(2/self.beta_acc),self.orden_filtro_tracto_acc)
+            a_W2_acc,polos_W2_acc,ceros_W2_acc,a_W2_acc_originales,polos_W2_acc_originales = self._resolver_toeplitz(self.W2_acc**(2/self.beta_acc),self.orden_filtro_tracto_acc)
 
-            flujo_w1_acc = self._calcular_flujo(a_W1_acc, self.acc)
-            flujo_w2_acc = self._calcular_flujo(a_W2_acc, self.acc)
+            dflujo_w1_acc,flujo_w1_acc = self._filtrado_inverso(a_W1_acc, self.acc,self.alfa_acc)
+            dflujo_w2_acc,flujo_w2_acc = self._filtrado_inverso(a_W2_acc, self.acc,self.alfa_acc)
 
-            dflujo_w1_acc= self._calcular_derivada(flujo_w1_acc)
-            dflujo_w2_acc = self._calcular_derivada(flujo_w2_acc)
+            ep1_acc= self._calcular_error_prediccion(a_W1_acc_originales, señal_acc)
+            ep2_acc = self._calcular_error_prediccion(a_W2_acc_originales, señal_acc)
 
-            ep1_acc= self._calcular_error_prediccion(a_W1_acc, señal_acc)
-            ep2_acc = self._calcular_error_prediccion(a_W2_acc, señal_acc)
-
-            self._seleccionar_candidato('acc',H1,H2,
+            self._seleccionar_candidato('acc',self.orden_filtro_tracto_acc,H1,H2,
                                         a_W1_acc,a_W2_acc,
                                         polos_W1_acc,polos_W2_acc,
+                                        polos_W1_acc_originales,polos_W2_acc_originales,
                                         ceros_W1_acc,ceros_W2_acc,
                                         flujo_w1_acc,flujo_w2_acc,
                                         dflujo_w1_acc,dflujo_w2_acc,
