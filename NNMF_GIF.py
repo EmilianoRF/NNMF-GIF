@@ -271,12 +271,17 @@ class NNMF_GIF:
                                dflujo_w1, dflujo_w2,
                                ep1, ep2, i=None):
 
-        e1H1 = H1*np.abs(ep1[self.long_ventana_espect-1:])
-        parametro_e1H1 = np.sum(H1*np.abs(ep1[self.long_ventana_espect-1:]))/np.sum(H1)
-        e2H2 = H2*np.abs(ep2[self.long_ventana_espect-1:])
-        parametro_e2H2 = np.sum(H2*np.abs(ep2[self.long_ventana_espect-1:]))/np.sum(H2)  
+        ep1 = ep1[self.long_ventana_espect-1:]
+        ep1 = ep1/max(abs(ep1))
+        e1H1 = H1*np.abs(ep1)
+        parametro_e1H1 = np.sum(e1H1)/np.sum(H1)
+
+        ep2 = ep2[self.long_ventana_espect-1:]
+        ep2 = ep2/max(abs(ep2))
+        e2H2 = H1*np.abs(ep2)
+        parametro_e2H2 = np.sum(e2H2)/np.sum(H2)
         
-        self.tiempos_eH = self.tiempos[self.long_ventana_espect-1:len(self.tiempos)-self.orden_filtro_tracto-1]
+        self.tiempos_eH = self.tiempos[self.long_ventana_espect-1:len(self.tiempos)]
         if parametro_e1H1 < parametro_e2H2:
             self.a_W1 = a_W1
             self.a_W2 = a_W2
@@ -290,8 +295,8 @@ class NNMF_GIF:
             self.flujo2 = flujo_w2
             self.dflujo1 = dflujo_w1
             self.dflujo2 = dflujo_w2
-            self.error_predic1 = ep1[self.mascara_tiempos]
-            self.error_predic2 = ep2[self.mascara_tiempos]
+            self.error_predic1 = ep1
+            self.error_predic2 = ep2
             self.e1H1 = e1H1
             self.e2H2 = e2H2
             self.suma_e1H1 = parametro_e1H1
@@ -315,8 +320,8 @@ class NNMF_GIF:
             self.flujo2  = flujo_w1
             self.dflujo1 = dflujo_w2
             self.dflujo2 =  dflujo_w1
-            self.error_predic1 = ep2[self.mascara_tiempos]
-            self.error_predic2 = ep1[self.mascara_tiempos]
+            self.error_predic1 = ep2
+            self.error_predic2 = ep1
             self.e1H1 = e2H2
             self.e2H2 = e1H1
             self.suma_e1H1 = parametro_e2H2

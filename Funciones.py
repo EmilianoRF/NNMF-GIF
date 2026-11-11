@@ -22,6 +22,14 @@ import numpy as np
 import scipy.signal as sig
 from scipy.signal import find_peaks
 
+
+def energiaTeager(señal,tiempos):
+        energia = [señal[n]**2 - señal[n-1]*señal[n+1] for n in range(1,len(señal)-1)]
+        energia = energia/max(energia)
+        tiempos_ = tiempos[1:len(tiempos)-1]
+        return energia,tiempos_
+
+
 def get_vq_params(gf, gfd, fs, return_gci=False, f0_range=(50.0, 500.0),
                   gci_threshold=0.15, detalle=None):
     """
